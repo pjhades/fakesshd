@@ -583,8 +583,11 @@ dependencies = [
 name = "fakesshd"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "russh",
+ "russh-keys",
+ "ssh-key",
  "tokio",
 ]
 

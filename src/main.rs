@@ -30,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut services = JoinSet::new();
     services.spawn(ssh::run(ssh_port));
-    services.spawn(gencmd::run(gencmd_port));
+    services.spawn(gencmd::run(gencmd_port, ssh_port));
 
     // TODO tracing?
     while let Some(result) = services.join_next_with_id().await {

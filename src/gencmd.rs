@@ -35,6 +35,7 @@ pub fn hash_addr(dest_addr: SocketAddrV4) -> Result<u32, anyhow::Error> {
 async fn handle_request(
     req: Request<body::Incoming>,
     server_addr: SocketAddrV4,
+    ssh_port: u16,
 ) -> Result<Response<Full<body::Bytes>>, anyhow::Error> {
     let uri = req.uri();
     let dest_addr = match extract_ip_port(uri.path()) {
@@ -56,8 +57,8 @@ async fn handle_request(
         hash,
         server_addr.ip(),
     );
-    if server_addr.port() != crate::DEFAULT_SSH_PORT {
-        message.push_str(format!(":{}", server_addr.port()).as_str());
+    if ssh_port != crate::DEFAULT_SSH_PORT {
+        message.push_str(format!(":{}", ssh_port).as_str());
     }
 
     Response::builder()
@@ -67,11 +68,11 @@ async fn handle_request(
         .map_err(|e| e.into())
 }
 
-pub async fn run(port: u16) -> Result<(), anyhow::Error> {
-    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+pub async fn run(gencmd_port: u16, ssh_port: u16) -> Result<(), anyhow::Error> {
+    let listener = TcpListener::bind(("0.0.0.0", gencmd_port)).await?;
 
     loop {
-        println!("gencmd on {} ...", port);
+        println!("gencmd on {} ...", gencmd_port);
         let (mut stream, client_addr) = listener.accept().await?;
         println!("conn from {:?}", client_addr);
         let io = TokioIo::new(stream);
@@ -81,7 +82,10 @@ pub async fn run(port: u16) -> Result<(), anyhow::Error> {
         };
         tokio::spawn(async move {
             if let Err(e) = Builder::new()
-                .serve_connection(io, service_fn(|req| handle_request(req, server_addr)))
+                .serve_connection(
+                    io,
+                    service_fn(|req| handle_request(req, server_addr, ssh_port)),
+                )
                 .await
             {
                 eprintln!("too bad {}", e);

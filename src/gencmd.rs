@@ -15,13 +15,21 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 
-pub const GENCMD_SALT: &'static str = "not really random";
+const GENCMD_SALT: &'static str = "not really random";
 
 fn extract_ip_port(path: &str) -> Result<SocketAddrV4, anyhow::Error> {
     let path = path
         .strip_prefix('/')
         .ok_or(anyhow!("path doesn't start with /"))?;
     SocketAddrV4::from_str(path).map_err(|e| e.into())
+}
+
+pub fn hash_addr(dest_addr: SocketAddrV4) -> Result<u32, anyhow::Error> {
+    let mut cursor = Cursor::new(Vec::new());
+    cursor.write(dest_addr.ip().to_bits().to_le_bytes().as_slice())?;
+    cursor.write(dest_addr.port().to_le_bytes().as_slice())?;
+    cursor.write(GENCMD_SALT.as_bytes())?;
+    murmur3::murmur3_32(&mut cursor, 0).map_err(|e| e.into())
 }
 
 async fn handle_request(
@@ -40,12 +48,7 @@ async fn handle_request(
         }
     };
 
-    let mut cursor = Cursor::new(Vec::new());
-    cursor.write(dest_addr.ip().to_bits().to_le_bytes().as_slice())?;
-    cursor.write(dest_addr.port().to_le_bytes().as_slice())?;
-    cursor.write(GENCMD_SALT.as_bytes())?;
-
-    let hash = murmur3::murmur3_32(&mut cursor, 0)?;
+    let hash = hash_addr(dest_addr)?;
     let mut message = format!(
         "ssh -R 1:{}:{} {}@{}",
         dest_addr.ip(),

@@ -1,12 +1,12 @@
 use http_body_util::Full;
 
 use hyper::body::Bytes;
-use hyper::rt::Executor;
 use hyper::server::conn::http1::Builder;
 use hyper::service::service_fn;
 use hyper::{body, Request, Response};
 use hyper_util::rt::tokio::TokioIo;
 
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 use std::io::{Cursor, Write};
@@ -24,23 +24,30 @@ fn extract_ip_port(path: &str) -> Result<SocketAddrV4, anyhow::Error> {
     SocketAddrV4::from_str(path).map_err(|e| e.into())
 }
 
-pub fn hash_addr(dest_addr: SocketAddrV4) -> Result<u32, anyhow::Error> {
+// XXX This only hashes the client IP, not the forward destination. So, if one client wants to
+// forward to multiple destinations, the hash will be the same and thus the server won't be able
+// to distinguish the different tunnels.
+pub fn hash_client(client_ip: Ipv4Addr) -> Result<u32, anyhow::Error> {
     let mut cursor = Cursor::new(Vec::new());
-    cursor.write(dest_addr.ip().to_bits().to_le_bytes().as_slice())?;
-    cursor.write(dest_addr.port().to_le_bytes().as_slice())?;
-    cursor.write(GENCMD_SALT.as_bytes())?;
-    murmur3::murmur3_32(&mut cursor, 0).map_err(|e| e.into())
+    <Cursor<_> as Write>::write(&mut cursor, client_ip.to_bits().to_le_bytes().as_slice())?;
+    <Cursor<_> as Write>::write(&mut cursor, GENCMD_SALT.as_bytes())?;
+    cursor.set_position(0);
+    murmur3::murmur3_x64_128(&mut cursor, 0)
+        .map(|x| x as u32)
+        .map_err(|e| e.into())
 }
 
 async fn handle_request(
     req: Request<body::Incoming>,
+    client_addr: SocketAddrV4,
     server_addr: SocketAddrV4,
     ssh_port: u16,
 ) -> Result<Response<Full<body::Bytes>>, anyhow::Error> {
     let uri = req.uri();
-    let dest_addr = match extract_ip_port(uri.path()) {
+    let local_addr = match extract_ip_port(uri.path()) {
         Ok(a) => a,
         Err(e) => {
+            println!("{e}");
             return Response::builder()
                 .status(400)
                 .header("Server", env!("CARGO_CRATE_NAME"))
@@ -49,11 +56,11 @@ async fn handle_request(
         }
     };
 
-    let hash = hash_addr(dest_addr)?;
+    let hash = hash_client(*client_addr.ip())?;
     let mut message = format!(
-        "ssh -R 1:{}:{} {}@{}",
-        dest_addr.ip(),
-        dest_addr.port(),
+        "ssh -R 1:{}:{} {:x}@{}\n",
+        local_addr.ip(),
+        local_addr.port(),
         hash,
         server_addr.ip(),
     );
@@ -75,16 +82,27 @@ pub async fn run(gencmd_port: u16, ssh_port: u16) -> Result<(), anyhow::Error> {
         println!("gencmd on {} ...", gencmd_port);
         let (mut stream, client_addr) = listener.accept().await?;
         println!("conn from {:?}", client_addr);
-        let io = TokioIo::new(stream);
+        let client_addr = match client_addr {
+            SocketAddr::V4(addr) => addr,
+            SocketAddr::V6(addr) => {
+                stream.shutdown().await?;
+                return Err(anyhow!("unexpected IPv6 address {addr}"));
+            }
+        };
         let server_addr = match listener.local_addr()? {
             SocketAddr::V4(addr) => addr,
-            SocketAddr::V6(addr) => return Err(anyhow!("IPv6 is not supported now")),
+            SocketAddr::V6(addr) => {
+                stream.shutdown().await?;
+                return Err(anyhow!("unexpected IPv6 address {addr}"));
+            }
         };
+
+        let io = TokioIo::new(stream);
         tokio::spawn(async move {
             if let Err(e) = Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(|req| handle_request(req, server_addr, ssh_port)),
+                    service_fn(|req| handle_request(req, client_addr, server_addr, ssh_port)),
                 )
                 .await
             {
@@ -92,6 +110,4 @@ pub async fn run(gencmd_port: u16, ssh_port: u16) -> Result<(), anyhow::Error> {
             }
         });
     }
-
-    unreachable!();
 }

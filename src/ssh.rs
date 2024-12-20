@@ -1,13 +1,16 @@
 use async_trait::async_trait;
-use log::{info, warn};
+//use log::{info, warn};
+use anyhow::anyhow;
 use russh::server::{run_stream, Auth, Config, Handler, Msg, Session};
-use russh::{Channel, ChannelId, CryptoVec, MethodSet, Sig, SshId};
+use russh::{Channel, ChannelId, MethodSet, Sig};
 use ssh_key::rand_core::OsRng;
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+
+use std::collections::BTreeMap;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 
 struct Server {
     tunnels: Mutex<BTreeMap<ChannelId, Channel<Msg>>>,
@@ -23,30 +26,65 @@ impl Server {
 
 struct SessionHandler {
     server: Arc<Server>,
+    client_ip: Ipv4Addr,
+    user: Option<String>,
 }
 
 #[async_trait]
 impl Handler for SessionHandler {
-    type Error = russh::Error;
+    type Error = anyhow::Error;
 
     async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
-        println!("auth none: {}", user);
+        println!("auth none");
+        self.user = Some(String::from(user));
         Ok(Auth::Accept)
     }
 
-    async fn auth_succeeded(&mut self, session: &mut Session) -> Result<(), Self::Error> {
-        println!("auth succeeds");
+    async fn auth_succeeded(&mut self, _session: &mut Session) -> Result<(), Self::Error> {
+        println!("auth succeeded");
         Ok(())
     }
 
     async fn tcpip_forward(
         &mut self,
-        address: &str,
-        port: &mut u32,
-        session: &mut Session,
+        _address: &str,
+        _port: &mut u32,
+        _session: &mut Session,
     ) -> Result<bool, Self::Error> {
         println!("tcp/ip forward");
         Ok(true)
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        _channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        originator_address: &str,
+        originator_port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        println!(
+            "channel open direct tcpip: to connect: {}:{} original: {}:{}",
+            host_to_connect, port_to_connect, originator_address, originator_port
+        );
+        Ok(false)
+    }
+
+    async fn channel_open_forwarded_tcpip(
+        &mut self,
+        _channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        originator_address: &str,
+        originator_port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        println!(
+            "channel open forwarded tcpip: to connect: {}:{} original: {}:{}",
+            host_to_connect, port_to_connect, originator_address, originator_port
+        );
+        Ok(false)
     }
 
     async fn channel_open_session(
@@ -54,14 +92,21 @@ impl Handler for SessionHandler {
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        println!("open session");
-        Ok(true)
+        println!("channel open session");
+        let user = self.user.as_ref().map_or("", |s| s.as_str());
+        let claimed_hash = u32::from_str_radix(user, 16).map_err(|e| anyhow::Error::from(e));
+        let hash = crate::gencmd::hash_client(self.client_ip).map_err(|e| anyhow::Error::from(e));
+        match (&claimed_hash, &hash) {
+            (Ok(claimed_hash), Ok(hash)) if claimed_hash == hash => return Ok(true),
+            _ => (),
+        }
+        Ok(false)
     }
 
     async fn channel_eof(
         &mut self,
-        channel: ChannelId,
-        session: &mut Session,
+        _channel: ChannelId,
+        _session: &mut Session,
     ) -> Result<(), Self::Error> {
         println!("client sends channel eof");
         Ok(())
@@ -69,8 +114,8 @@ impl Handler for SessionHandler {
 
     async fn channel_close(
         &mut self,
-        channel: ChannelId,
-        session: &mut Session,
+        _channel: ChannelId,
+        _session: &mut Session,
     ) -> Result<(), Self::Error> {
         println!("client closes channel");
         Ok(())
@@ -93,9 +138,9 @@ impl Handler for SessionHandler {
 
     async fn signal(
         &mut self,
-        channel: ChannelId,
+        _channel: ChannelId,
         signal: Sig,
-        session: &mut Session,
+        _session: &mut Session,
     ) -> Result<(), Self::Error> {
         println!("signal {:?}", signal);
         Ok(())
@@ -116,11 +161,20 @@ pub async fn run(port: u16) -> Result<(), anyhow::Error> {
 
     loop {
         println!("accept ...");
-        let (mut stream, addr) = listener.accept().await?;
-        println!("conn from {:?}", addr);
-        let handler = SessionHandler {
-            server: server.clone(),
+        let (mut stream, client_addr) = listener.accept().await?;
+        println!("conn from {:?}", client_addr);
+        let client_addr = match client_addr {
+            SocketAddr::V4(addr) => addr,
+            SocketAddr::V6(addr) => {
+                stream.shutdown().await?;
+                return Err(anyhow!("unexpected IPv6 address {addr}"));
+            }
         };
-        let session = run_stream(config.clone(), stream, handler).await?;
+        let handler = SessionHandler {
+            client_ip: *client_addr.ip(),
+            server: server.clone(),
+            user: None,
+        };
+        run_stream(config.clone(), stream, handler).await?;
     }
 }

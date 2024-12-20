@@ -13,7 +13,8 @@ hyper = { version = "1.5.2", features = ["full"] }
 hyper-util = { version = "0.1.10", features = ["full"] }
 log = "0.4.22"
 murmur3 = "0.5.2"
-russh = { git = "https://github.com/Eugeny/russh.git" }
+#russh = { git = "https://github.com/Eugeny/russh.git" }
+russh = { path = "/Users/pjhades/code/russh/russh" }
 russh-keys = { git = "https://github.com/Eugeny/russh.git" }
 ssh-key = { version = "0.6.7", features = ["rand_core"] }
 tokio = { version = "1.42.0", features = ["full"] }

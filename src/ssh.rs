@@ -2,22 +2,24 @@ use async_trait::async_trait;
 //use log::{info, warn};
 use anyhow::anyhow;
 use russh::server::{run_stream, Auth, Config, Handler, Msg, Session};
-use russh::{Channel, ChannelId, MethodSet, Sig};
+use russh::{Channel, ChannelId, MethodSet};
 use ssh_key::rand_core::OsRng;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+use crate::gencmd;
+
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-struct Server {
+pub struct Server {
     tunnels: Mutex<BTreeMap<ChannelId, Channel<Msg>>>,
 }
 
 impl Server {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             tunnels: Mutex::new(BTreeMap::new()),
         }
@@ -55,38 +57,6 @@ impl Handler for SessionHandler {
         Ok(true)
     }
 
-    async fn channel_open_direct_tcpip(
-        &mut self,
-        _channel: Channel<Msg>,
-        host_to_connect: &str,
-        port_to_connect: u32,
-        originator_address: &str,
-        originator_port: u32,
-        _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        println!(
-            "channel open direct tcpip: to connect: {}:{} original: {}:{}",
-            host_to_connect, port_to_connect, originator_address, originator_port
-        );
-        Ok(false)
-    }
-
-    async fn channel_open_forwarded_tcpip(
-        &mut self,
-        _channel: Channel<Msg>,
-        host_to_connect: &str,
-        port_to_connect: u32,
-        originator_address: &str,
-        originator_port: u32,
-        _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        println!(
-            "channel open forwarded tcpip: to connect: {}:{} original: {}:{}",
-            host_to_connect, port_to_connect, originator_address, originator_port
-        );
-        Ok(false)
-    }
-
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
@@ -95,7 +65,7 @@ impl Handler for SessionHandler {
         println!("channel open session");
         let user = self.user.as_ref().map_or("", |s| s.as_str());
         let claimed_hash = u32::from_str_radix(user, 16).map_err(|e| anyhow::Error::from(e));
-        let hash = crate::gencmd::hash_client(self.client_ip).map_err(|e| anyhow::Error::from(e));
+        let hash = gencmd::hash_client(self.client_ip).map_err(|e| anyhow::Error::from(e));
         match (&claimed_hash, &hash) {
             (Ok(claimed_hash), Ok(hash)) if claimed_hash == hash => return Ok(true),
             _ => (),
@@ -123,31 +93,19 @@ impl Handler for SessionHandler {
 
     async fn data(
         &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        println!("data: {:?}", data);
-        if data == &[0x3] {
-            let m = "bye bye!".into();
-            session.data(channel, m)?;
-            session.close(channel)?;
-        }
-        Ok(())
-    }
-
-    async fn signal(
-        &mut self,
         _channel: ChannelId,
-        signal: Sig,
+        data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        println!("signal {:?}", signal);
+        // Handle Ctrl-C from clients
+        if data == &[0x3] {
+            return Err(anyhow::Error::from(russh::Error::Disconnect));
+        }
         Ok(())
     }
 }
 
-pub async fn run(port: u16) -> Result<(), anyhow::Error> {
+pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     let config = Arc::new(Config {
         methods: MethodSet::NONE,
@@ -157,10 +115,8 @@ pub async fn run(port: u16) -> Result<(), anyhow::Error> {
         ..Default::default()
     });
 
-    let server = Arc::new(Server::new());
-
     loop {
-        println!("accept ...");
+        println!("accept ssh ...");
         let (mut stream, client_addr) = listener.accept().await?;
         println!("conn from {:?}", client_addr);
         let client_addr = match client_addr {

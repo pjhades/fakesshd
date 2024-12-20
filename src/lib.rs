@@ -1,4 +1,5 @@
 pub mod gencmd;
+pub mod http;
 pub mod ssh;
 
 pub const DEFAULT_GENCMD_PORT: u16 = 8080;

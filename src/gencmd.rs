@@ -29,8 +29,8 @@ fn extract_ip_port(path: &str) -> Result<SocketAddrV4, anyhow::Error> {
 // to distinguish the different tunnels.
 pub fn hash_client(client_ip: Ipv4Addr) -> Result<u32, anyhow::Error> {
     let mut cursor = Cursor::new(Vec::new());
-    <Cursor<_> as Write>::write(&mut cursor, client_ip.to_bits().to_le_bytes().as_slice())?;
-    <Cursor<_> as Write>::write(&mut cursor, GENCMD_SALT.as_bytes())?;
+    Write::write(&mut cursor, client_ip.to_bits().to_le_bytes().as_slice())?;
+    Write::write(&mut cursor, GENCMD_SALT.as_bytes())?;
     cursor.set_position(0);
     murmur3::murmur3_x64_128(&mut cursor, 0)
         .map(|x| x as u32)

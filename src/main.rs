@@ -1,9 +1,9 @@
 use clap::Parser;
-use fakesshd::{
-    gencmd, ssh, DEFAULT_GENCMD_PORT, DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT, DEFAULT_SSH_PORT,
-};
+use fakesshd::{gencmd, http, ssh};
 use log::{error, info};
 use tokio::task::JoinSet;
+
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -23,14 +23,18 @@ async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
 
     let cli_args = CliArgs::parse();
-    let gencmd_port = cli_args.gencmd_port.unwrap_or(DEFAULT_GENCMD_PORT);
-    let ssh_port = cli_args.ssh_port.unwrap_or(DEFAULT_SSH_PORT);
-    let http_port = cli_args.http_port.unwrap_or(DEFAULT_HTTP_PORT);
-    let https_port = cli_args.https_port.unwrap_or(DEFAULT_HTTPS_PORT);
+    let gencmd_port = cli_args
+        .gencmd_port
+        .unwrap_or(fakesshd::DEFAULT_GENCMD_PORT);
+    let ssh_port = cli_args.ssh_port.unwrap_or(fakesshd::DEFAULT_SSH_PORT);
+    let http_port = cli_args.http_port.unwrap_or(fakesshd::DEFAULT_HTTP_PORT);
+    let https_port = cli_args.https_port.unwrap_or(fakesshd::DEFAULT_HTTPS_PORT);
 
+    let server = Arc::new(ssh::Server::new());
     let mut services = JoinSet::new();
-    services.spawn(ssh::run(ssh_port));
     services.spawn(gencmd::run(gencmd_port, ssh_port));
+    services.spawn(ssh::run(ssh_port, server.clone()));
+    services.spawn(http::run_http(http_port, server.clone()));
 
     // TODO tracing?
     while let Some(result) = services.join_next_with_id().await {

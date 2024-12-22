@@ -32,7 +32,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let server = Arc::new(ssh::Server::new());
     let mut services = JoinSet::new();
-    services.spawn(gencmd::run(gencmd_port, ssh_port));
+    services.spawn(gencmd::run(gencmd_port, ssh_port, server.clone()));
     services.spawn(ssh::run(ssh_port, server.clone()));
     services.spawn(http::run_http(http_port, server.clone()));
 

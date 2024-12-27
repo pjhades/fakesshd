@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use log::{debug, error, info};
 use russh::server::{run_stream, Auth, Config, Handle, Handler, Msg, Session};
-use russh::{Channel, ChannelId, CryptoVec, MethodSet};
+use russh::{Channel, ChannelId, CryptoVec, Disconnect, MethodSet};
 use russh_keys::{Algorithm, PrivateKey};
 use ssh_key::rand_core::OsRng;
 use tokio::net::TcpListener;
@@ -73,11 +73,15 @@ impl Server {
         Ok(())
     }
 
-    pub async fn unregister_tunnel(&self, hash: u32) {
+    pub async fn unregister_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
         let mut tunnels = self.tunnels.lock().await;
-        tunnels.remove(&hash);
+        if let Some(Some(sess)) = tunnels.remove(&hash) {
+            sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
+                .await
+                .map_err(|e| anyhow::Error::from(e))?
+        }
         info!("unregister tunnel hash {hash:x}");
-        // XXX close the channel and session, whatever
+        Ok(())
     }
 
     pub async fn open_tunnel(
@@ -206,7 +210,7 @@ impl Handler for SessionHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if data == &[0x3] {
-            self.server.unregister_tunnel(self.hash.unwrap()).await;
+            self.server.unregister_tunnel(self.hash.unwrap()).await?;
             return Err(anyhow::Error::from(russh::Error::Disconnect));
         }
 

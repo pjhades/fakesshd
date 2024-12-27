@@ -62,7 +62,9 @@ async fn handle_unregister(
         Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
     };
 
-    server.unregister_tunnel(hash).await;
+    if let Err(_) = server.unregister_tunnel(hash).await {
+        return resp.status(500).body(Body::empty()).unwrap();
+    }
 
     return resp.status(200).body(Body::empty()).unwrap();
 }

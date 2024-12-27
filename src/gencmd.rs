@@ -126,7 +126,7 @@ pub async fn run(port: u16, ssh_port: u16, server: Arc<Server>) -> Result<(), an
             post(move |dest_addr, client_addr| handle_unregister(dest_addr, client_addr, server)),
         );
 
-    info!("gencmd listening on {port}");
+    info!("listening on {port}");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

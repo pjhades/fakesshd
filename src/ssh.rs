@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use log::{error, info};
+use log::{debug, error, info};
 use russh::server::{run_stream, Auth, Config, Handle, Handler, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec, MethodSet};
 use russh_keys::{Algorithm, PrivateKey};
@@ -105,7 +105,9 @@ impl Server {
                     )
                     .await
                     .map_err(|e| anyhow::Error::from(e))?;
-                println!("channel id {} opened", channel.id());
+
+                debug!("open forwarding channel {} for hash {hash:x}", channel.id());
+
                 Ok(Tunnel {
                     session: sess.clone(),
                     channel,
@@ -150,19 +152,19 @@ impl Handler for SessionHandler {
             Some(h) => h,
         };
 
-        info!("tcp/ip forward is requested for hash {hash:x}");
+        info!("TCP/IP forwarding is requested for hash {hash:x}");
 
         let mut tunnels = self.server.tunnels.lock().await;
         match tunnels.get_mut(&hash) {
             None => return Ok(false),
             Some(Some(_)) => {
                 error!(
-                    "trying to forward tcp/ip but session already exists, removing hash {hash:x}"
+                    "trying to forward TCP/IP but session already exists, removing hash {hash:x}"
                 );
                 tunnels.remove(&hash);
             }
             Some(sess) => {
-                println!("XXX");
+                debug!("record session handle for hash {hash:x}");
                 *sess = Some(session.handle());
             }
         }
@@ -184,7 +186,7 @@ impl Handler for SessionHandler {
     ) -> Result<(), Self::Error> {
         let mut pipes = self.server.pipes.lock().await;
         pipes.remove(&channel);
-        println!("EOF, remove channel {channel}");
+        debug!("received EOF from channel {channel}, remove it");
         Ok(())
     }
 
@@ -193,7 +195,7 @@ impl Handler for SessionHandler {
         _channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        println!("client closes channel");
+        debug!("client closes channel");
         Ok(())
     }
 
@@ -229,9 +231,9 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     });
 
     loop {
-        info!("ssh listening on {port}");
+        info!("listening on {port}");
         let (stream, client_addr) = listener.accept().await?;
-        println!("conn from {:?}", client_addr);
+        debug!("accept new connection from client {client_addr:?}");
         let handler = SessionHandler {
             server: server.clone(),
             hash: None,

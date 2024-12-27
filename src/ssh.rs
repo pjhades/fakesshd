@@ -5,15 +5,12 @@ use russh::server::{run_stream, Auth, Config, Handle, Handler, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec, MethodSet};
 use russh_keys::{Algorithm, PrivateKey};
 use ssh_key::rand_core::OsRng;
-use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::{assume_socket_addr_v4, gencmd};
-
 use std::collections::BTreeMap;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 /// Bookkeeping information of a tunnel belonging to a specific SSH client and destination.
@@ -141,7 +138,6 @@ impl Server {
 
 struct SessionHandler {
     server: Arc<Server>,
-    client_ip: Ipv4Addr,
     hash: Option<u32>,
 }
 
@@ -189,7 +185,7 @@ impl Handler for SessionHandler {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
-        session: &mut Session,
+        _session: &mut Session,
     ) -> Result<bool, Self::Error> {
         println!("channel open session, channel {}", channel.id());
         Ok(true)
@@ -219,7 +215,7 @@ impl Handler for SessionHandler {
         &mut self,
         channel: ChannelId,
         data: &[u8],
-        session: &mut Session,
+        _session: &mut Session,
     ) -> Result<(), Self::Error> {
         // XXX if we get Ctrl-C from the client ovre the channel of ssh -R,
         // we should remove the tunnel from the map, but at that time, the
@@ -231,7 +227,7 @@ impl Handler for SessionHandler {
             return Err(anyhow::Error::from(russh::Error::Disconnect));
         }
 
-        let mut pipes = self.server.pipes.lock().await;
+        let pipes = self.server.pipes.lock().await;
         match pipes.get(&channel) {
             None => {
                 return Err(anyhow!("no pipe found for channel {}", channel));
@@ -253,14 +249,12 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
 
     loop {
         println!("accept ssh ...");
-        let (mut stream, client_addr) = listener.accept().await?;
+        let (stream, client_addr) = listener.accept().await?;
         println!("conn from {:?}", client_addr);
-        let client_addr = assume_socket_addr_v4(client_addr);
         let handler = SessionHandler {
-            client_ip: *client_addr.ip(),
             server: server.clone(),
             hash: None,
         };
-        let session = run_stream(config.clone(), stream, handler).await?.handle();
+        let _session = run_stream(config.clone(), stream, handler).await?.handle();
     }
 }

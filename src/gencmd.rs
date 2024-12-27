@@ -1,11 +1,8 @@
-use anyhow::anyhow;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Path};
-use axum::http::{Response, StatusCode};
+use axum::http::Response;
 use axum::routing::post;
 use axum::Router;
-use http_body_util::Full;
-use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 use std::io::{Cursor, Write};
@@ -51,10 +48,10 @@ async fn handle_unregister(
     };
     let hash = match hash_tunnel(dest_addr, *client_addr.ip()) {
         Ok(h) => h,
-        Err(e) => return resp.status(500).body(Body::empty()).unwrap(),
+        Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
     };
 
-    server.unregister_tunnel(hash);
+    server.unregister_tunnel(hash).await;
 
     return resp.status(200).body(Body::empty()).unwrap();
 }
@@ -80,7 +77,7 @@ async fn handle_register(
     };
     let hash = match hash_tunnel(dest_addr, *client_addr.ip()) {
         Ok(h) => h,
-        Err(e) => return resp.status(500).body(Body::empty()).unwrap(),
+        Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
     };
 
     if let Err(e) = server.register_tunnel(hash, dest_addr).await {

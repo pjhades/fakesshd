@@ -8,16 +8,14 @@ use hyper::server::conn::http1::Builder;
 use hyper::service::service_fn;
 use hyper::{body, Request, Response, Uri};
 use hyper_util::rt::tokio::TokioIo;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::Receiver;
 
 use crate::assume_socket_addr_v4;
 use crate::ssh::Server;
 
-use std::io::{Cursor, Write};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::str::FromStr;
+use std::io::Write;
+use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 async fn serialize_request(req: Request<body::Incoming>) -> Result<Vec<u8>, anyhow::Error> {
@@ -137,7 +135,7 @@ pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Erro
 
     loop {
         println!("http on {} ...", port);
-        let (mut stream, client_addr) = listener.accept().await?;
+        let (stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
         println!("http conn from {:?}", client_addr);
         tokio::spawn(handle_stream(stream, client_addr, server.clone()));

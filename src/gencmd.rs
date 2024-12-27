@@ -56,6 +56,7 @@ async fn handle_unregister(
                 .unwrap()
         }
     };
+
     let hash = match hash_tunnel(dest_addr, *client_addr.ip()) {
         Ok(h) => h,
         Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
@@ -86,17 +87,18 @@ async fn handle_register(
                 .unwrap()
         }
     };
+
     let hash = match hash_tunnel(dest_addr, *client_addr.ip()) {
         Ok(h) => h,
         Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
     };
-
     if let Err(e) = server.register_tunnel(hash, dest_addr).await {
         return resp.status(500).body(Body::from(format!("{e}"))).unwrap();
     }
 
     let mut cmd = format!(
-        "ssh -R 1:{}:{} {:x}@{}",
+        "ssh -R {}:{}:{} {:x}@{}",
+        crate::FORWARDED_PORT,
         dest_addr.ip(),
         dest_addr.port(),
         hash,

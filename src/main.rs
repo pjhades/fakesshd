@@ -1,6 +1,6 @@
 use clap::Parser;
 use fakesshd::{gencmd, http, ssh};
-use log::{error, info, LevelFilter};
+use log::{error, info};
 use tokio::task::JoinSet;
 
 use std::future::Future;
@@ -38,9 +38,7 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    env_logger::Builder::new()
-        .filter_level(LevelFilter::Info)
-        .init();
+    env_logger::init();
 
     let cli_args = CliArgs::parse();
     let gencmd_port = cli_args

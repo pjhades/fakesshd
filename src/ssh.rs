@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-//use log::{info, warn};
 use anyhow::anyhow;
+use async_trait::async_trait;
+use log::info;
 use russh::server::{run_stream, Auth, Config, Handle, Handler, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec, MethodSet};
 use russh_keys::{Algorithm, PrivateKey};
@@ -250,7 +250,7 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     });
 
     loop {
-        println!("accept ssh ...");
+        info!("ssh listening on {port}");
         let (stream, client_addr) = listener.accept().await?;
         println!("conn from {:?}", client_addr);
         let handler = SessionHandler {

@@ -8,6 +8,7 @@ use hyper::server::conn::http1::Builder;
 use hyper::service::service_fn;
 use hyper::{body, Request, Response, Uri};
 use hyper_util::rt::tokio::TokioIo;
+use log::info;
 use rustls::ServerConfig;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -169,7 +170,7 @@ pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Erro
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
 
     loop {
-        println!("http on {} ...", port);
+        info!("http listening on {port}");
         let (stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
         println!("http conn from {:?}", client_addr);
@@ -196,7 +197,7 @@ pub async fn run_https(
     let tls_acceptor = TlsAcceptor::from(Arc::new(config));
 
     loop {
-        println!("https on {} ...", port);
+        info!("https listening on {port}");
         let (tcp_stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
         println!("https conn from {:?}", client_addr);

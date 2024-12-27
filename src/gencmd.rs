@@ -3,6 +3,7 @@ use axum::extract::{ConnectInfo, Path};
 use axum::http::Response;
 use axum::routing::post;
 use axum::Router;
+use log::info;
 use tokio::net::TcpListener;
 
 use std::io::{Cursor, Write};
@@ -107,12 +108,8 @@ async fn handle_register(
     return resp.status(200).body(Body::from(cmd)).unwrap();
 }
 
-pub async fn run(
-    gencmd_port: u16,
-    ssh_port: u16,
-    server: Arc<Server>,
-) -> Result<(), anyhow::Error> {
-    let listener = TcpListener::bind(("0.0.0.0", gencmd_port)).await?;
+pub async fn run(port: u16, ssh_port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     let server_addr = assume_socket_addr_v4(listener.local_addr()?);
     let s = server.clone();
     let app = Router::new()
@@ -127,7 +124,7 @@ pub async fn run(
             post(move |dest_addr, client_addr| handle_unregister(dest_addr, client_addr, server)),
         );
 
-    println!("gencmd on {} ...", gencmd_port);
+    info!("gencmd listening on {port}");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

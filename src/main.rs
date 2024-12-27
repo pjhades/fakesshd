@@ -1,8 +1,9 @@
 use clap::Parser;
 use fakesshd::{gencmd, http, ssh};
-//use log::{error, info};
+use log::{error, info, LevelFilter};
 use tokio::task::JoinSet;
 
+use std::future::Future;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -27,9 +28,19 @@ struct CliArgs {
     private_key_file: Option<String>,
 }
 
+async fn named_task<F, T>(name: &str, task: F) -> (&str, <F as Future>::Output)
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send,
+{
+    (name, task.await)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    env_logger::init();
+    env_logger::Builder::new()
+        .filter_level(LevelFilter::Info)
+        .init();
 
     let cli_args = CliArgs::parse();
     let gencmd_port = cli_args
@@ -47,21 +58,25 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let server = Arc::new(ssh::Server::new());
     let mut services = JoinSet::new();
-    services.spawn(gencmd::run(gencmd_port, ssh_port, server.clone()));
-    services.spawn(ssh::run(ssh_port, server.clone()));
-    services.spawn(http::run_http(http_port, server.clone()));
-    services.spawn(http::run_https(
-        https_port,
-        cert_file,
-        private_key_file,
-        server.clone(),
+    services.spawn(named_task(
+        "gencmd",
+        gencmd::run(gencmd_port, ssh_port, server.clone()),
+    ));
+    services.spawn(named_task("ssh", ssh::run(ssh_port, server.clone())));
+    services.spawn(named_task(
+        "http",
+        http::run_http(http_port, server.clone()),
+    ));
+    services.spawn(named_task(
+        "https",
+        http::run_https(https_port, cert_file, private_key_file, server.clone()),
     ));
 
-    // XXX logging
-    while let Some(result) = services.join_next_with_id().await {
+    while let Some(result) = services.join_next().await {
         match result {
-            Ok((id, _)) => println!("task {} finished", id),
-            Err(e) => println!("task {} error: {}", e.id(), e),
+            Ok((name, Ok(_))) => info!("task {name} exited"),
+            Ok((name, Err(e))) => error!("task {name} exited with error: {e}"),
+            Err(e) => error!("join error {e}"),
         }
     }
 

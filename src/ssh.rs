@@ -179,12 +179,6 @@ impl Handler for SessionHandler {
         match tunnels.get_mut(&hash) {
             None => return Ok(false),
             Some(info) => {
-                // XXX handle this error instead of assert
-                // XXX this crashes, to reproduce:
-                //   - register
-                //   - ssh -R
-                //   - ctrl-c
-                //   - ssh -R same
                 assert!(info.session.is_none());
                 info.session = Some(session.handle());
             }
@@ -233,7 +227,7 @@ impl Handler for SessionHandler {
         // then I GUESS calling I/O functions on the corresponding channels on the same session will
         // error out
         if data == &[0x3] {
-            self.server.unregister_tunnel(self.hash.unwrap());
+            self.server.unregister_tunnel(self.hash.unwrap()).await;
             return Err(anyhow::Error::from(russh::Error::Disconnect));
         }
 

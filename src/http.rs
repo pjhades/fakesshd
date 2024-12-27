@@ -142,7 +142,6 @@ async fn handle_tls_stream(
     client_addr: SocketAddrV4,
     server: Arc<Server>,
 ) -> Result<(), anyhow::Error> {
-    // accept resolves to a Result<TlsStream<IO>, Error>
     let tls_stream = tls_acceptor
         .accept(tcp_stream)
         .await

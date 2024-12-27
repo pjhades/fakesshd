@@ -15,6 +15,15 @@ use crate::ssh::Server;
 
 const GENCMD_SALT: &'static str = "not really random";
 
+/// Get the hash of a tunnel. We use
+///
+///   - the destination of forwarding, and
+///   - the SSH client IP
+///
+/// to uniquely identify a tunnel, or a forwarding session, so that the same SSH client is able to
+/// create multiple forwarding, and multiple clients can forward to the same destination. A salt is
+/// appended to prevent the client from accessing the tunnel with a forged hash without ever running
+/// the `ssh -R` command.
 pub fn hash_tunnel(dest_addr: SocketAddrV4, client_ip: Ipv4Addr) -> Result<u32, anyhow::Error> {
     let mut cursor = Cursor::new(Vec::new());
     Write::write(
@@ -56,7 +65,8 @@ async fn handle_unregister(
     return resp.status(200).body(Body::empty()).unwrap();
 }
 
-// XXX implement custom extractor to convert dest_addr and client_addr to SocketAddrV4
+// To eliminate the repetition we can implement custom axum extractors
+// to convert `dest_addr` and `client_addr` to `SocketAddrV4`.
 async fn handle_register(
     Path(dest_addr): Path<String>,
     ConnectInfo(client_addr): ConnectInfo<SocketAddr>,

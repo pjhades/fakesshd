@@ -23,10 +23,15 @@ struct TunnelInfo {
 
 #[derive(Debug)]
 pub struct Tunnel {
+    /// Hash of this tunnel.
     hash: u32,
+    /// Destination of forwarding.
     dest_addr: SocketAddrV4,
+    /// SSH client address.
     client_addr: SocketAddrV4,
+    /// russh session handle.
     session: Handle,
+    /// russh channel corresponding to this tunnel.
     channel: Channel<Msg>,
 }
 
@@ -63,7 +68,11 @@ impl Tunnel {
 }
 
 pub struct Server {
+    /// Map a tunnel hash to the tunnel information.
     tunnels: Mutex<BTreeMap<u32, TunnelInfo>>,
+
+    /// Map a russh channel to its MPSC sender side, so that when we receive response data from the
+    /// SSH client we know where to send to the HTTP/HTTPS client.
     pipes: Mutex<BTreeMap<ChannelId, Sender<Vec<u8>>>>,
 }
 
@@ -80,8 +89,6 @@ impl Server {
         hash: u32,
         dest_addr: SocketAddrV4,
     ) -> Result<(), anyhow::Error> {
-        // XXX if we don't hold the lock across await then we can replace this with
-        // std::sync::Mutex, if our critical sections do not contain any await.
         let mut tunnels = self.tunnels.lock().await;
         if tunnels.get(&hash).is_some() {
             return Err(anyhow!("Tunnel exists"));
@@ -217,11 +224,6 @@ impl Handler for SessionHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // XXX if we get Ctrl-C from the client ovre the channel of ssh -R,
-        // we should remove the tunnel from the map, but at that time, the
-        // channel might still be in use, so we should kill the session and
-        // then I GUESS calling I/O functions on the corresponding channels on the same session will
-        // error out
         if data == &[0x3] {
             self.server.unregister_tunnel(self.hash.unwrap()).await;
             return Err(anyhow::Error::from(russh::Error::Disconnect));

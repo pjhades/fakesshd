@@ -10,14 +10,19 @@ use std::sync::Arc;
 struct CliArgs {
     #[arg(long, value_name = "PORT")]
     ssh_port: Option<u16>,
+
     #[arg(long, value_name = "PORT")]
     http_port: Option<u16>,
+
     #[arg(long, value_name = "PORT")]
     https_port: Option<u16>,
+
     #[arg(long, value_name = "PORT")]
     gencmd_port: Option<u16>,
+
     #[arg(long, value_name = "FILE")]
     cert_file: Option<String>,
+
     #[arg(long, value_name = "FILE")]
     private_key_file: Option<String>,
 }

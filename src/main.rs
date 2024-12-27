@@ -1,6 +1,6 @@
 use clap::Parser;
 use fakesshd::{gencmd, http, ssh};
-use log::{error, info};
+//use log::{error, info};
 use tokio::task::JoinSet;
 
 use std::sync::Arc;
@@ -16,6 +16,10 @@ struct CliArgs {
     https_port: Option<u16>,
     #[arg(long, value_name = "PORT")]
     gencmd_port: Option<u16>,
+    #[arg(long, value_name = "FILE")]
+    cert_file: Option<String>,
+    #[arg(long, value_name = "FILE")]
+    private_key_file: Option<String>,
 }
 
 #[tokio::main]
@@ -29,18 +33,30 @@ async fn main() -> Result<(), anyhow::Error> {
     let ssh_port = cli_args.ssh_port.unwrap_or(fakesshd::DEFAULT_SSH_PORT);
     let http_port = cli_args.http_port.unwrap_or(fakesshd::DEFAULT_HTTP_PORT);
     let https_port = cli_args.https_port.unwrap_or(fakesshd::DEFAULT_HTTPS_PORT);
+    let cert_file = cli_args
+        .cert_file
+        .unwrap_or(String::from(fakesshd::DEFAULT_CERT_FILE));
+    let private_key_file = cli_args
+        .private_key_file
+        .unwrap_or(String::from(fakesshd::DEFAULT_PRIVATE_KEY_FILE));
 
     let server = Arc::new(ssh::Server::new());
     let mut services = JoinSet::new();
     services.spawn(gencmd::run(gencmd_port, ssh_port, server.clone()));
     services.spawn(ssh::run(ssh_port, server.clone()));
     services.spawn(http::run_http(http_port, server.clone()));
+    services.spawn(http::run_https(
+        https_port,
+        cert_file,
+        private_key_file,
+        server.clone(),
+    ));
 
-    // TODO tracing?
+    // XXX logging
     while let Some(result) = services.join_next_with_id().await {
         match result {
-            Ok((id, _)) => info!("task {} finished", id),
-            Err(e) => error!("task {} error: {}", e.id(), e),
+            Ok((id, _)) => println!("task {} finished", id),
+            Err(e) => println!("task {} error: {}", e.id(), e),
         }
     }
 

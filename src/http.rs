@@ -8,13 +8,19 @@ use hyper::server::conn::http1::Builder;
 use hyper::service::service_fn;
 use hyper::{body, Request, Response, Uri};
 use hyper_util::rt::tokio::TokioIo;
+use rustls::ServerConfig;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::Receiver;
+use tokio_rustls::TlsAcceptor;
 
 use crate::assume_socket_addr_v4;
 use crate::ssh::Server;
 
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufReader, Write};
+use std::marker::Unpin;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
@@ -115,8 +121,8 @@ async fn handle_request(
     Ok(resp)
 }
 
-async fn handle_stream(
-    stream: TcpStream,
+async fn handle_stream<T: AsyncRead + AsyncWrite + Unpin>(
+    stream: T,
     client_addr: SocketAddrV4,
     server: Arc<Server>,
 ) -> Result<(), anyhow::Error> {
@@ -130,6 +136,36 @@ async fn handle_stream(
         .map_err(|e| e.into())
 }
 
+async fn handle_tls_stream(
+    tls_acceptor: TlsAcceptor,
+    tcp_stream: TcpStream,
+    client_addr: SocketAddrV4,
+    server: Arc<Server>,
+) -> Result<(), anyhow::Error> {
+    // accept resolves to a Result<TlsStream<IO>, Error>
+    let tls_stream = tls_acceptor
+        .accept(tcp_stream)
+        .await
+        .map_err(|e| anyhow::Error::from(e))?;
+    handle_stream(tls_stream, client_addr, server).await
+}
+
+fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>, anyhow::Error> {
+    let file = File::open(path).map_err(|e| anyhow!("failed to open {}: {}", path, e))?;
+    let mut reader = BufReader::new(file);
+    rustls_pemfile::certs(&mut reader)
+        .map(|x| x.map_err(|e| e.into()))
+        .collect()
+}
+
+fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, anyhow::Error> {
+    let file = File::open(path).map_err(|e| anyhow!("failed to open {}: {}", path, e))?;
+    let mut reader = BufReader::new(file);
+    rustls_pemfile::private_key(&mut reader)
+        .map(|key| key.unwrap())
+        .map_err(|e| e.into())
+}
+
 pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
 
@@ -139,5 +175,37 @@ pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Erro
         let client_addr = assume_socket_addr_v4(client_addr);
         println!("http conn from {:?}", client_addr);
         tokio::spawn(handle_stream(stream, client_addr, server.clone()));
+    }
+}
+
+pub async fn run_https(
+    port: u16,
+    cert_file: String,
+    private_key_file: String,
+    server: Arc<Server>,
+) -> Result<(), anyhow::Error> {
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+
+    let certs = load_certs(&cert_file)?;
+    let private_key = load_private_key(&private_key_file)?;
+
+    let mut config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, private_key)
+        .map_err(|e| anyhow::Error::from(e))?;
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let tls_acceptor = TlsAcceptor::from(Arc::new(config));
+
+    loop {
+        println!("https on {} ...", port);
+        let (tcp_stream, client_addr) = listener.accept().await?;
+        let client_addr = assume_socket_addr_v4(client_addr);
+        println!("https conn from {:?}", client_addr);
+        tokio::spawn(handle_tls_stream(
+            tls_acceptor.clone(),
+            tcp_stream,
+            client_addr,
+            server.clone(),
+        ));
     }
 }

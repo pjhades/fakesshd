@@ -19,5 +19,9 @@ murmur3 = "0.5.2"
 #russh = { git = "https://github.com/Eugeny/russh.git" }
 russh = { path = "/Users/pjhades/code/russh/russh" }
 russh-keys = { git = "https://github.com/Eugeny/russh.git" }
+rustls = "0.23.20"
+rustls-pemfile = "2.2.0"
+rustls-pki-types = "1.10.1"
 ssh-key = { version = "0.6.7", features = ["rand_core"] }
 tokio = { version = "1.42.0", features = ["full"] }
+tokio-rustls = "0.26.1"

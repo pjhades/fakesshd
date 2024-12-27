@@ -225,10 +225,10 @@ impl Handler for SessionHandler {
 
     async fn channel_close(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        debug!("client closes channel");
+        debug!("close channel {channel}");
         Ok(())
     }
 
@@ -240,6 +240,7 @@ impl Handler for SessionHandler {
     ) -> Result<(), Self::Error> {
         match self.channel {
             Some(c) if c == channel => {
+                // Handle Ctrl-C from SSH client
                 if data == &[0x3] {
                     self.server.unregister_tunnel(self.hash.unwrap()).await?;
                     return Err(anyhow::Error::from(russh::Error::Disconnect));

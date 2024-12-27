@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
+use crate::assume_socket_addr_v4;
+
 #[derive(Debug)]
 pub struct Tunnel {
     /// russh session handle.
@@ -123,6 +125,7 @@ impl Server {
 
 struct SessionHandler {
     server: Arc<Server>,
+    server_addr: SocketAddrV4,
     hash: Option<u32>,
     /// Channel ID of the session, i.e., the `ssh -R` command.
     channel: Option<ChannelId>,
@@ -180,13 +183,32 @@ impl Handler for SessionHandler {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
-        _session: &mut Session,
+        session: &mut Session,
     ) -> Result<bool, Self::Error> {
         if self.channel.is_some() {
             error!("trying to open session but channel already exists, disconnect");
             return Err(anyhow!("failed to open session"));
         }
         self.channel = Some(channel.id());
+
+        match self.hash {
+            None => {
+                error!("trying to open session but hash is missing, disconnect");
+                return Err(anyhow!("failed to open session"));
+            }
+            Some(h) => {
+                let msg = format!(
+                    "http://{0:?}/{1:x}/\r\nhttps://{0:?}/{1:x}/\r\n",
+                    self.server_addr, h
+                );
+                session
+                    .handle()
+                    .data(channel.id(), CryptoVec::from(msg.as_bytes()))
+                    .await
+                    .map_err(|_| anyhow!("failed to send URL to client"))?;
+            }
+        }
+
         Ok(true)
     }
 
@@ -216,12 +238,20 @@ impl Handler for SessionHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(c) = self.channel {
-            if channel == c && data == &[0x3] {
-                self.server.unregister_tunnel(self.hash.unwrap()).await?;
-                return Err(anyhow::Error::from(russh::Error::Disconnect));
+        match self.channel {
+            Some(c) if c == channel => {
+                if data == &[0x3] {
+                    self.server.unregister_tunnel(self.hash.unwrap()).await?;
+                    return Err(anyhow::Error::from(russh::Error::Disconnect));
+                } else {
+                    return Ok(());
+                }
             }
-            return Ok(());
+            None => {
+                error!("received data from channel {channel} but session channel is missing, disconnect");
+                return Err(anyhow!("broken session"));
+            }
+            _ => (),
         }
 
         let pipes = self.server.pipes.lock().await;
@@ -243,6 +273,7 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
         keys: vec![PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap()],
         ..Default::default()
     });
+    let server_addr = assume_socket_addr_v4(listener.local_addr()?);
 
     loop {
         info!("listening on {port}");
@@ -250,6 +281,7 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
         debug!("accept new connection from client {client_addr:?}");
         let handler = SessionHandler {
             server: server.clone(),
+            server_addr,
             hash: None,
             channel: None,
         };

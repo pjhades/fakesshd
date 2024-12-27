@@ -49,8 +49,8 @@ impl Tunnel {
 }
 
 pub struct Server {
-    /// Map a tunnel hash to the tunnel information.
-    tunnels: Mutex<BTreeMap<u32, Option<Handle>>>,
+    /// Map a tunnel hash to the forwarding session.
+    sessions: Mutex<BTreeMap<u32, Option<Handle>>>,
 
     /// Map a russh channel to its MPSC sender side, so that when we receive response data from the
     /// SSH client we know where to send to the HTTP/HTTPS client.
@@ -60,24 +60,24 @@ pub struct Server {
 impl Server {
     pub fn new() -> Self {
         Self {
-            tunnels: Mutex::new(BTreeMap::new()),
+            sessions: Mutex::new(BTreeMap::new()),
             pipes: Mutex::new(BTreeMap::new()),
         }
     }
 
     pub async fn register_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
-        let mut tunnels = self.tunnels.lock().await;
-        if tunnels.get(&hash).is_some() {
+        let mut sessions = self.sessions.lock().await;
+        if sessions.get(&hash).is_some() {
             return Err(anyhow!("Tunnel exists"));
         }
-        tunnels.insert(hash, None);
+        sessions.insert(hash, None);
         info!("register tunnel hash {hash:x}");
         Ok(())
     }
 
     pub async fn unregister_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
-        let mut tunnels = self.tunnels.lock().await;
-        if let Some(Some(sess)) = tunnels.remove(&hash) {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(Some(sess)) = sessions.remove(&hash) {
             sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
                 .await
                 .map_err(|e| anyhow::Error::from(e))?
@@ -91,14 +91,14 @@ impl Server {
         hash: u32,
         client_addr: SocketAddrV4,
     ) -> Result<Tunnel, anyhow::Error> {
-        let mut tunnels = self.tunnels.lock().await;
-        match tunnels.get_mut(&hash) {
+        let mut sessions = self.sessions.lock().await;
+        match sessions.get_mut(&hash) {
             None => Err(anyhow!("Invalid tunnel")),
             Some(None) => {
                 error!(
                     "trying to open tunnel but session handle is missing, removing hash {hash:x}"
                 );
-                tunnels.remove(&hash);
+                sessions.remove(&hash);
                 Err(anyhow!("missing session"))
             }
             Some(Some(sess)) => {
@@ -137,8 +137,8 @@ impl Handler for SessionHandler {
 
     async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
         let hash = u32::from_str_radix(user, 16).map_err(|e| anyhow::Error::from(e))?;
-        let tunnels = self.server.tunnels.lock().await;
-        if tunnels.get(&hash).is_none() {
+        let sessions = self.server.sessions.lock().await;
+        if sessions.get(&hash).is_none() {
             // Returning an `Err` makes sure the connection will be closed as a result of
             // authentication failure. In theory we should return `Auth::Reject` but the client
             // will continue with other authentication options like password which isn't
@@ -163,14 +163,14 @@ impl Handler for SessionHandler {
 
         info!("TCP/IP forwarding is requested for hash {hash:x}");
 
-        let mut tunnels = self.server.tunnels.lock().await;
-        match tunnels.get_mut(&hash) {
+        let mut sessions = self.server.sessions.lock().await;
+        match sessions.get_mut(&hash) {
             None => return Ok(false),
             Some(Some(_)) => {
                 error!(
                     "trying to forward TCP/IP but session already exists, removing hash {hash:x}"
                 );
-                tunnels.remove(&hash);
+                sessions.remove(&hash);
             }
             Some(sess) => {
                 debug!("record session handle for hash {hash:x}");

@@ -124,6 +124,8 @@ impl Server {
 struct SessionHandler {
     server: Arc<Server>,
     hash: Option<u32>,
+    /// Channel ID of the session, i.e., the `ssh -R` command.
+    channel: Option<ChannelId>,
 }
 
 #[async_trait]
@@ -177,9 +179,14 @@ impl Handler for SessionHandler {
 
     async fn channel_open_session(
         &mut self,
-        _channel: Channel<Msg>,
+        channel: Channel<Msg>,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
+        if self.channel.is_some() {
+            error!("trying to open session but channel already exists, disconnect");
+            return Err(anyhow!("failed to open session"));
+        }
+        self.channel = Some(channel.id());
         Ok(true)
     }
 
@@ -209,9 +216,12 @@ impl Handler for SessionHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if data == &[0x3] {
-            self.server.unregister_tunnel(self.hash.unwrap()).await?;
-            return Err(anyhow::Error::from(russh::Error::Disconnect));
+        if let Some(c) = self.channel {
+            if channel == c && data == &[0x3] {
+                self.server.unregister_tunnel(self.hash.unwrap()).await?;
+                return Err(anyhow::Error::from(russh::Error::Disconnect));
+            }
+            return Ok(());
         }
 
         let pipes = self.server.pipes.lock().await;
@@ -241,6 +251,7 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
         let handler = SessionHandler {
             server: server.clone(),
             hash: None,
+            channel: None,
         };
         let _session = run_stream(config.clone(), stream, handler).await?.handle();
     }

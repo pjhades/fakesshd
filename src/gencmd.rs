@@ -92,7 +92,7 @@ async fn handle_register(
         Ok(h) => h,
         Err(_) => return resp.status(500).body(Body::empty()).unwrap(),
     };
-    if let Err(e) = server.register_tunnel(hash, dest_addr).await {
+    if let Err(e) = server.register_tunnel(hash).await {
         return resp.status(500).body(Body::from(format!("{e}"))).unwrap();
     }
 

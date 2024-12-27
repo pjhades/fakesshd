@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use log::info;
+use log::{error, info};
 use russh::server::{run_stream, Auth, Config, Handle, Handler, Msg, Session};
 use russh::{Channel, ChannelId, CryptoVec, MethodSet};
 use russh_keys::{Algorithm, PrivateKey};
@@ -13,22 +13,8 @@ use std::collections::BTreeMap;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
-/// Bookkeeping information of a tunnel belonging to a specific SSH client and destination.
-struct TunnelInfo {
-    // XXX we probably don't need this. this is currently only for logging
-    // if it's removed, we can simplify the tunnels as btreemap: u32 -> session handle
-    dest_addr: SocketAddrV4,
-    session: Option<Handle>,
-}
-
 #[derive(Debug)]
 pub struct Tunnel {
-    /// Hash of this tunnel.
-    hash: u32,
-    /// Destination of forwarding.
-    dest_addr: SocketAddrV4,
-    /// SSH client address.
-    client_addr: SocketAddrV4,
     /// russh session handle.
     session: Handle,
     /// russh channel corresponding to this tunnel.
@@ -44,14 +30,7 @@ impl Tunnel {
         self.session
             .data(self.channel.id(), CryptoVec::from(req))
             .await
-            .map_err(|_| {
-                anyhow!(
-                    "failed to forward for {:?} to {:?} via tunnel {}",
-                    self.client_addr,
-                    self.dest_addr,
-                    self.hash
-                )
-            })?;
+            .map_err(|_| anyhow!("failed to forward data"))?;
 
         let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
         let mut pipes = server.pipes.lock().await;
@@ -69,7 +48,7 @@ impl Tunnel {
 
 pub struct Server {
     /// Map a tunnel hash to the tunnel information.
-    tunnels: Mutex<BTreeMap<u32, TunnelInfo>>,
+    tunnels: Mutex<BTreeMap<u32, Option<Handle>>>,
 
     /// Map a russh channel to its MPSC sender side, so that when we receive response data from the
     /// SSH client we know where to send to the HTTP/HTTPS client.
@@ -84,26 +63,20 @@ impl Server {
         }
     }
 
-    pub async fn register_tunnel(
-        &self,
-        hash: u32,
-        dest_addr: SocketAddrV4,
-    ) -> Result<(), anyhow::Error> {
+    pub async fn register_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
         let mut tunnels = self.tunnels.lock().await;
         if tunnels.get(&hash).is_some() {
             return Err(anyhow!("Tunnel exists"));
         }
-        let info = TunnelInfo {
-            dest_addr,
-            session: None,
-        };
-        tunnels.insert(hash, info);
+        tunnels.insert(hash, None);
+        info!("register tunnel hash {hash:x}");
         Ok(())
     }
 
     pub async fn unregister_tunnel(&self, hash: u32) {
         let mut tunnels = self.tunnels.lock().await;
         tunnels.remove(&hash);
+        info!("unregister tunnel hash {hash:x}");
         // XXX close the channel and session, whatever
     }
 
@@ -115,13 +88,15 @@ impl Server {
         let mut tunnels = self.tunnels.lock().await;
         match tunnels.get_mut(&hash) {
             None => Err(anyhow!("Invalid tunnel")),
-            Some(info) => {
-                // XXX handle this error instead of assert
-                assert!(info.session.is_some());
-                let channel = info
-                    .session
-                    .as_ref()
-                    .unwrap()
+            Some(None) => {
+                error!(
+                    "trying to open tunnel but session handle is missing, removing hash {hash:x}"
+                );
+                tunnels.remove(&hash);
+                Err(anyhow!("missing session"))
+            }
+            Some(Some(sess)) => {
+                let channel = sess
                     .channel_open_forwarded_tcpip(
                         "localhost",
                         1,
@@ -132,10 +107,7 @@ impl Server {
                     .map_err(|e| anyhow::Error::from(e))?;
                 println!("channel id {} opened", channel.id());
                 Ok(Tunnel {
-                    hash,
-                    dest_addr: info.dest_addr,
-                    client_addr,
-                    session: info.session.as_ref().unwrap().clone(),
+                    session: sess.clone(),
                     channel,
                 })
             }
@@ -173,17 +145,25 @@ impl Handler for SessionHandler {
         _port: &mut u32,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        println!("tcp/ip forward, hash={:x?}", self.hash);
         let hash = match self.hash {
             None => return Ok(false),
             Some(h) => h,
         };
+
+        info!("tcp/ip forward is requested for hash {hash:x}");
+
         let mut tunnels = self.server.tunnels.lock().await;
         match tunnels.get_mut(&hash) {
             None => return Ok(false),
-            Some(info) => {
-                assert!(info.session.is_none());
-                info.session = Some(session.handle());
+            Some(Some(_)) => {
+                error!(
+                    "trying to forward tcp/ip but session already exists, removing hash {hash:x}"
+                );
+                tunnels.remove(&hash);
+            }
+            Some(sess) => {
+                println!("XXX");
+                *sess = Some(session.handle());
             }
         }
         Ok(true)
@@ -191,10 +171,9 @@ impl Handler for SessionHandler {
 
     async fn channel_open_session(
         &mut self,
-        channel: Channel<Msg>,
+        _channel: Channel<Msg>,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        println!("channel open session, channel {}", channel.id());
         Ok(true)
     }
 

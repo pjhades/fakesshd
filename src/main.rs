@@ -80,9 +80,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
     while let Some(result) = services.join_next().await {
         match result {
-            Ok((name, Ok(_))) => info!("task {name} exited"),
-            Ok((name, Err(e))) => error!("task {name} exited with error: {e}"),
-            Err(e) => error!("join error {e}"),
+            Ok((name, Ok(_))) => info!("Task {name} exited"),
+            Ok((name, Err(e))) => error!("Task {name} exited with error: {e}"),
+            Err(e) => error!("Join error {e}"),
         }
     }
 

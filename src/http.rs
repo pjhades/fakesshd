@@ -57,13 +57,13 @@ fn deserialize_response(data: &[u8]) -> Result<Response<Full<body::Bytes>>, anyh
     let mut headers = [EMPTY_HEADER; 32];
     let mut resp = ParsedResponse::new(&mut headers);
     let body_start = match resp.parse(data) {
-        Err(e) => return Err(anyhow!("response parse error: {e}")),
+        Err(e) => return Err(anyhow!("Response parse error: {e}")),
         Ok(Status::Complete(pos)) => pos,
-        Ok(Status::Partial) => return Err(anyhow!("incomplete response")),
+        Ok(Status::Partial) => return Err(anyhow!("Incomplete response")),
     };
 
     let body = Full::new(body::Bytes::copy_from_slice(&data[body_start..]));
-    let status = resp.code.ok_or(anyhow!("no status code in response"))?;
+    let status = resp.code.ok_or(anyhow!("No status code in response"))?;
     let mut builder = Response::builder().status(status);
     for h in resp.headers {
         let k = HeaderName::from_bytes(h.name.as_bytes()).map_err(|e| anyhow::Error::from(e))?;
@@ -157,7 +157,7 @@ async fn handle_tls_stream(
 }
 
 fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>, anyhow::Error> {
-    let file = File::open(path).map_err(|e| anyhow!("failed to open {}: {}", path, e))?;
+    let file = File::open(path).map_err(|e| anyhow!("Failed to open {}: {}", path, e))?;
     let mut reader = BufReader::new(file);
     rustls_pemfile::certs(&mut reader)
         .map(|x| x.map_err(|e| e.into()))
@@ -165,7 +165,7 @@ fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>, anyhow::Error>
 }
 
 fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, anyhow::Error> {
-    let file = File::open(path).map_err(|e| anyhow!("failed to open {}: {}", path, e))?;
+    let file = File::open(path).map_err(|e| anyhow!("Failed to open {}: {}", path, e))?;
     let mut reader = BufReader::new(file);
     rustls_pemfile::private_key(&mut reader)
         .map(|key| key.unwrap())
@@ -175,13 +175,13 @@ fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, anyhow::Error>
 pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
 
-    info!("listening on {port}");
+    info!("Listening on {port}");
 
     loop {
         let (stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
 
-        debug!("accept new connection from client {client_addr:?}");
+        debug!("Accept new connection from client {client_addr:?}");
 
         tokio::spawn(handle_stream(stream, client_addr, server.clone()));
     }
@@ -205,13 +205,13 @@ pub async fn run_https(
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     let tls_acceptor = TlsAcceptor::from(Arc::new(config));
 
-    info!("listening on {port}");
+    info!("Listening on {port}");
 
     loop {
         let (tcp_stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
 
-        debug!("accept new connection from client {client_addr:?}");
+        debug!("Accept new connection from client {client_addr:?}");
 
         tokio::spawn(handle_tls_stream(
             tls_acceptor.clone(),

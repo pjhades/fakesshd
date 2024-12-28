@@ -187,14 +187,14 @@ async fn handle_stream(
 pub async fn run(port: u16, ssh_port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
 
-    info!("listening on {port}");
+    info!("Listening on {port}");
 
     loop {
         let (stream, client_addr) = listener.accept().await?;
         let server_addr = assume_socket_addr_v4(stream.local_addr()?);
         let client_addr = assume_socket_addr_v4(client_addr);
 
-        debug!("accept new connection from client {client_addr:?}");
+        debug!("Accept new connection from client {client_addr:?}");
 
         tokio::spawn(handle_stream(
             stream,

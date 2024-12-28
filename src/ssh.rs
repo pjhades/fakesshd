@@ -32,7 +32,7 @@ impl Tunnel {
         self.session
             .data(self.channel.id(), CryptoVec::from(req))
             .await
-            .map_err(|_| anyhow!("failed to forward data"))?;
+            .map_err(|_| anyhow!("Failed to forward data"))?;
 
         let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
         let mut pipes = server.pipes.lock().await;
@@ -41,7 +41,7 @@ impl Tunnel {
                 pipes.insert(self.channel.id(), tx);
             }
             Some(_) => {
-                return Err(anyhow!("channel {} exists", self.channel.id()));
+                return Err(anyhow!("Channel {} exists", self.channel.id()));
             }
         }
         Ok(rx)
@@ -85,7 +85,7 @@ impl Server {
                 channels: Vec::new(),
             },
         );
-        info!("register tunnel hash {hash:x}");
+        info!("Register tunnel hash {hash:x}");
         Ok(())
     }
 
@@ -106,7 +106,7 @@ impl Server {
                         .map_err(|e| anyhow::Error::from(e))?
                 }
 
-                info!("unregister tunnel hash {hash:x}");
+                info!("Unregister tunnel hash {hash:x}");
 
                 Ok(())
             }
@@ -124,8 +124,8 @@ impl Server {
             None => Err(anyhow!("Invalid tunnel")),
             Some(info) => match info.session.as_ref() {
                 None => {
-                    debug!("session is missing for hash {hash:x}");
-                    Err(anyhow!("missing session"))
+                    debug!("Session is missing for hash {hash:x}");
+                    Err(anyhow!("Missing session"))
                 }
                 Some(sess) => {
                     let channel = sess
@@ -138,7 +138,7 @@ impl Server {
                         .await
                         .map_err(|e| anyhow::Error::from(e))?;
 
-                    debug!("open forwarding channel {} for hash {hash:x}", channel.id());
+                    debug!("Open forwarding channel {} for hash {hash:x}", channel.id());
 
                     info.channels.push(channel.id());
 
@@ -214,16 +214,16 @@ impl Handler for SessionHandler {
         let mut sessions = self.server.sessions.lock().await;
         match sessions.get_mut(&hash) {
             None => {
-                debug!("session is missing for hash {hash:x}");
-                Err(anyhow!("missing session"))
+                debug!("Session is missing for hash {hash:x}");
+                Err(anyhow!("Missing session"))
             }
             Some(info) => match info.session.as_ref() {
                 Some(_) => {
-                    debug!("session exists for hash {hash:x}");
-                    Err(anyhow!("session exists"))
+                    debug!("Session exists for hash {hash:x}");
+                    Err(anyhow!("Session exists"))
                 }
                 None => {
-                    debug!("record session handle for hash {hash:x}");
+                    debug!("Record session handle for hash {hash:x}");
                     info.session = Some(session.handle());
                     Ok(true)
                 }
@@ -237,16 +237,16 @@ impl Handler for SessionHandler {
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
         if self.channel.is_some() {
-            error!("trying to open session but channel already exists, disconnect");
-            return Err(anyhow!("failed to open session"));
+            error!("Trying to open session but channel already exists, disconnect");
+            return Err(anyhow!("Failed to open session"));
         }
 
         self.channel = Some(channel.id());
 
         match self.hash {
             None => {
-                error!("trying to open session but hash is missing, disconnect");
-                return Err(anyhow!("failed to open session"));
+                error!("Trying to open session but hash is missing, disconnect");
+                return Err(anyhow!("Failed to open session"));
             }
             Some(h) => {
                 let mut http_url = format!("http://{:?}", self.server_addr.ip());
@@ -263,7 +263,7 @@ impl Handler for SessionHandler {
                     .handle()
                     .data(channel.id(), CryptoVec::from(msg.as_bytes()))
                     .await
-                    .map_err(|_| anyhow!("failed to send URL to client"))?;
+                    .map_err(|_| anyhow!("Failed to send URL to client"))?;
             }
         }
 
@@ -275,7 +275,7 @@ impl Handler for SessionHandler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        debug!("receive EOF from channel {channel}");
+        debug!("Receive EOF from channel {channel}");
         self.check_channel_close(channel).await
     }
 
@@ -284,7 +284,7 @@ impl Handler for SessionHandler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        debug!("client closes channel {channel}");
+        debug!("Client closes channel {channel}");
         self.check_channel_close(channel).await
     }
 
@@ -305,9 +305,9 @@ impl Handler for SessionHandler {
                 }
             }
             None => {
-                error!("received data from channel {channel} but session channel is missing, disconnect");
+                error!("Received data from channel {channel} but session channel is missing, disconnect");
                 self.server.unregister_tunnel(self.hash.unwrap()).await?;
-                return Err(anyhow!("broken session"));
+                return Err(anyhow!("Broken session"));
             }
             _ => (),
         }
@@ -315,7 +315,7 @@ impl Handler for SessionHandler {
         let pipes = self.server.pipes.lock().await;
         match pipes.get(&channel) {
             None => {
-                return Err(anyhow!("no pipe found for channel {}", channel));
+                return Err(anyhow!("No pipe found for channel {}", channel));
             }
             Some(tx) => tx.send(Vec::from(data)).await?,
         }
@@ -337,12 +337,12 @@ pub async fn run(
         ..Default::default()
     });
 
-    info!("listening on {port}");
+    info!("Listening on {port}");
 
     loop {
         let (stream, client_addr) = listener.accept().await?;
 
-        debug!("accept new connection from client {client_addr:?}");
+        debug!("Accept new connection from client {client_addr:?}");
 
         let server_addr = assume_socket_addr_v4(stream.local_addr()?);
         let handler = SessionHandler {

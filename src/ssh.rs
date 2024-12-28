@@ -48,9 +48,17 @@ impl Tunnel {
     }
 }
 
+struct SessionInfo {
+    /// russh session handle.
+    session: Option<Handle>,
+
+    /// Forwarding channels opened in this session.
+    channels: Vec<ChannelId>,
+}
+
 pub struct Server {
     /// Map a tunnel hash to the forwarding session.
-    sessions: Mutex<BTreeMap<u32, Option<Handle>>>,
+    sessions: Mutex<BTreeMap<u32, SessionInfo>>,
 
     /// Map a russh channel to its MPSC sender side, so that when we receive response data from the
     /// SSH client we know where to send to the HTTP/HTTPS client.
@@ -70,17 +78,32 @@ impl Server {
         if sessions.get(&hash).is_some() {
             return Err(anyhow!("Tunnel exists"));
         }
-        sessions.insert(hash, None);
+        sessions.insert(
+            hash,
+            SessionInfo {
+                session: None,
+                channels: Vec::new(),
+            },
+        );
         info!("register tunnel hash {hash:x}");
         Ok(())
     }
 
     pub async fn unregister_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
         let mut sessions = self.sessions.lock().await;
-        if let Some(Some(sess)) = sessions.remove(&hash) {
-            sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
-                .await
-                .map_err(|e| anyhow::Error::from(e))?
+        if let Some(info) = sessions.remove(&hash) {
+            {
+                let mut pipes = self.pipes.lock().await;
+                for channel in &info.channels {
+                    pipes.remove(channel);
+                }
+            }
+
+            if let Some(sess) = info.session {
+                sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
+                    .await
+                    .map_err(|e| anyhow::Error::from(e))?
+            }
         }
         info!("unregister tunnel hash {hash:x}");
         Ok(())
@@ -94,28 +117,32 @@ impl Server {
         let mut sessions = self.sessions.lock().await;
         match sessions.get_mut(&hash) {
             None => Err(anyhow!("Invalid tunnel")),
-            Some(None) => {
-                debug!("session is missing for hash {hash:x}");
-                Err(anyhow!("missing session"))
-            }
-            Some(Some(sess)) => {
-                let channel = sess
-                    .channel_open_forwarded_tcpip(
-                        "localhost",
-                        1,
-                        format!("{}", client_addr.ip()),
-                        client_addr.port() as u32,
-                    )
-                    .await
-                    .map_err(|e| anyhow::Error::from(e))?;
+            Some(info) => match info.session.as_ref() {
+                None => {
+                    debug!("session is missing for hash {hash:x}");
+                    Err(anyhow!("missing session"))
+                }
+                Some(sess) => {
+                    let channel = sess
+                        .channel_open_forwarded_tcpip(
+                            "localhost",
+                            1,
+                            format!("{}", client_addr.ip()),
+                            client_addr.port() as u32,
+                        )
+                        .await
+                        .map_err(|e| anyhow::Error::from(e))?;
 
-                debug!("open forwarding channel {} for hash {hash:x}", channel.id());
+                    debug!("open forwarding channel {} for hash {hash:x}", channel.id());
 
-                Ok(Tunnel {
-                    session: sess.clone(),
-                    channel,
-                })
-            }
+                    info.channels.push(channel.id());
+
+                    Ok(Tunnel {
+                        session: sess.clone(),
+                        channel,
+                    })
+                }
+            },
         }
     }
 }
@@ -168,15 +195,17 @@ impl Handler for SessionHandler {
                 debug!("session is missing for hash {hash:x}");
                 Err(anyhow!("missing session"))
             }
-            Some(Some(_)) => {
-                debug!("session exists for hash {hash:x}");
-                Err(anyhow!("session exists"))
-            }
-            Some(sess) => {
-                debug!("record session handle for hash {hash:x}");
-                *sess = Some(session.handle());
-                Ok(true)
-            }
+            Some(info) => match info.session.as_ref() {
+                Some(_) => {
+                    debug!("session exists for hash {hash:x}");
+                    Err(anyhow!("session exists"))
+                }
+                None => {
+                    debug!("record session handle for hash {hash:x}");
+                    info.session = Some(session.handle());
+                    Ok(true)
+                }
+            },
         }
     }
 

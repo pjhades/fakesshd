@@ -73,10 +73,10 @@ async fn handle_unregister(
         }
     };
 
-    if let Err(_) = server.unregister_tunnel(hash).await {
+    if let Err(e) = server.unregister_tunnel(hash).await {
         return resp
             .status(500)
-            .body(Full::new(Bytes::new()))
+            .body(Full::new(Bytes::from(e.to_string())))
             .map_err(|e| e.into());
     }
 

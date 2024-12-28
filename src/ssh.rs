@@ -91,22 +91,27 @@ impl Server {
 
     pub async fn unregister_tunnel(&self, hash: u32) -> Result<(), anyhow::Error> {
         let mut sessions = self.sessions.lock().await;
-        if let Some(info) = sessions.remove(&hash) {
-            {
-                let mut pipes = self.pipes.lock().await;
-                for channel in &info.channels {
-                    pipes.remove(channel);
+        match sessions.remove(&hash) {
+            Some(info) => {
+                {
+                    let mut pipes = self.pipes.lock().await;
+                    for channel in &info.channels {
+                        pipes.remove(channel);
+                    }
                 }
-            }
 
-            if let Some(sess) = info.session {
-                sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
-                    .await
-                    .map_err(|e| anyhow::Error::from(e))?
+                if let Some(sess) = info.session {
+                    sess.disconnect(Disconnect::ByApplication, String::new(), String::new())
+                        .await
+                        .map_err(|e| anyhow::Error::from(e))?
+                }
+
+                info!("unregister tunnel hash {hash:x}");
+
+                Ok(())
             }
+            None => Err(anyhow!("Invalid tunnel")),
         }
-        info!("unregister tunnel hash {hash:x}");
-        Ok(())
     }
 
     pub async fn open_tunnel(

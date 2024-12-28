@@ -175,9 +175,9 @@ fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, anyhow::Error>
 pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
 
-    loop {
-        info!("listening on {port}");
+    info!("listening on {port}");
 
+    loop {
         let (stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
 
@@ -205,9 +205,9 @@ pub async fn run_https(
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     let tls_acceptor = TlsAcceptor::from(Arc::new(config));
 
-    loop {
-        info!("listening on {port}");
+    info!("listening on {port}");
 
+    loop {
         let (tcp_stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
 

@@ -332,8 +332,9 @@ pub async fn run(
         ..Default::default()
     });
 
+    info!("listening on {port}");
+
     loop {
-        info!("listening on {port}");
         let (stream, client_addr) = listener.accept().await?;
 
         debug!("accept new connection from client {client_addr:?}");

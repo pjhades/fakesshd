@@ -331,12 +331,14 @@ pub async fn run(
         keys: vec![PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap()],
         ..Default::default()
     });
-    let server_addr = assume_socket_addr_v4(listener.local_addr()?);
 
     loop {
         info!("listening on {port}");
         let (stream, client_addr) = listener.accept().await?;
+
         debug!("accept new connection from client {client_addr:?}");
+
+        let server_addr = assume_socket_addr_v4(stream.local_addr()?);
         let handler = SessionHandler {
             server: server.clone(),
             server_addr,

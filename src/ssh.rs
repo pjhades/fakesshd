@@ -157,6 +157,23 @@ struct SessionHandler {
     channel: Option<ChannelId>,
 }
 
+impl SessionHandler {
+    async fn check_channel_close(&self, channel: ChannelId) -> Result<(), anyhow::Error> {
+        match (self.hash, self.channel) {
+            (Some(h), Some(c)) => {
+                if c == channel {
+                    self.server.unregister_tunnel(h).await?;
+                } else {
+                    let mut pipes = self.server.pipes.lock().await;
+                    pipes.remove(&channel);
+                }
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Handler for SessionHandler {
     type Error = anyhow::Error;
@@ -218,6 +235,7 @@ impl Handler for SessionHandler {
             error!("trying to open session but channel already exists, disconnect");
             return Err(anyhow!("failed to open session"));
         }
+
         self.channel = Some(channel.id());
 
         match self.hash {
@@ -252,10 +270,8 @@ impl Handler for SessionHandler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let mut pipes = self.server.pipes.lock().await;
-        pipes.remove(&channel);
-        debug!("received EOF from channel {channel}, remove it");
-        Ok(())
+        debug!("receive EOF from channel {channel}");
+        self.check_channel_close(channel).await
     }
 
     async fn channel_close(
@@ -263,8 +279,8 @@ impl Handler for SessionHandler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        debug!("close channel {channel}");
-        Ok(())
+        debug!("client closes channel {channel}");
+        self.check_channel_close(channel).await
     }
 
     async fn data(

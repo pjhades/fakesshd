@@ -301,6 +301,7 @@ impl Handler for SessionHandler {
             }
             None => {
                 error!("received data from channel {channel} but session channel is missing, disconnect");
+                self.server.unregister_tunnel(self.hash.unwrap()).await?;
                 return Err(anyhow!("broken session"));
             }
             _ => (),

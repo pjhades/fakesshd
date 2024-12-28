@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
-use crate::assume_socket_addr_v4;
+use crate::{assume_socket_addr_v4, DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT};
 
 #[derive(Debug)]
 pub struct Tunnel {
@@ -126,6 +126,8 @@ impl Server {
 struct SessionHandler {
     server: Arc<Server>,
     server_addr: SocketAddrV4,
+    http_port: u16,
+    https_port: u16,
     hash: Option<u32>,
     /// Channel ID of the session, i.e., the `ssh -R` command.
     channel: Option<ChannelId>,
@@ -197,10 +199,16 @@ impl Handler for SessionHandler {
                 return Err(anyhow!("failed to open session"));
             }
             Some(h) => {
-                let msg = format!(
-                    "http://{0:?}/{1:x}/\r\nhttps://{0:?}/{1:x}/\r\n",
-                    self.server_addr, h
-                );
+                let mut http_url = format!("http://{:?}", self.server_addr.ip());
+                let mut https_url = format!("https://{:?}", self.server_addr.ip());
+                let path = format!("/{h:x}");
+                if self.http_port != DEFAULT_HTTP_PORT {
+                    http_url.push_str(format!(":{}", self.http_port).as_str())
+                }
+                if self.https_port != DEFAULT_HTTPS_PORT {
+                    https_url.push_str(format!(":{}", self.https_port).as_str())
+                }
+                let msg = format!("{http_url}{path}\r\n{https_url}{path}\r\n");
                 session
                     .handle()
                     .data(channel.id(), CryptoVec::from(msg.as_bytes()))
@@ -267,7 +275,12 @@ impl Handler for SessionHandler {
     }
 }
 
-pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
+pub async fn run(
+    port: u16,
+    http_port: u16,
+    https_port: u16,
+    server: Arc<Server>,
+) -> Result<(), anyhow::Error> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     let config = Arc::new(Config {
         methods: MethodSet::NONE,
@@ -283,6 +296,8 @@ pub async fn run(port: u16, server: Arc<Server>) -> Result<(), anyhow::Error> {
         let handler = SessionHandler {
             server: server.clone(),
             server_addr,
+            http_port,
+            https_port,
             hash: None,
             channel: None,
         };

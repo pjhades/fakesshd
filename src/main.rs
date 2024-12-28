@@ -60,7 +60,10 @@ async fn main() -> Result<(), anyhow::Error> {
         "gencmd",
         gencmd::run(gencmd_port, ssh_port, server.clone()),
     ));
-    services.spawn(named_task("ssh", ssh::run(ssh_port, server.clone())));
+    services.spawn(named_task(
+        "ssh",
+        ssh::run(ssh_port, http_port, https_port, server.clone()),
+    ));
     services.spawn(named_task(
         "http",
         http::run_http(http_port, server.clone()),

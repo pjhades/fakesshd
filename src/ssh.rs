@@ -199,7 +199,7 @@ impl Handler for SessionHandler {
             Some(h) => {
                 let mut http_url = format!("http://{:?}", self.server_addr.ip());
                 let mut https_url = format!("https://{:?}", self.server_addr.ip());
-                let path = format!("/{h:x}");
+                let path = format!("/{h:x}/");
                 if self.http_port != DEFAULT_HTTP_PORT {
                     http_url.push_str(format!(":{}", self.http_port).as_str())
                 }

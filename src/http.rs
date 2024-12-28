@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 async fn serialize_request(req: Request<body::Incoming>) -> Result<Vec<u8>, anyhow::Error> {
     let mut bytes = Vec::new();
+
     Write::write(
         &mut bytes,
         format!(
@@ -37,15 +38,18 @@ async fn serialize_request(req: Request<body::Incoming>) -> Result<Vec<u8>, anyh
         )
         .as_bytes(),
     )?;
+
     for (name, value) in req.headers() {
         Write::write(
             &mut bytes,
             format!("{}: {}\r\n", name, value.to_str()?).as_bytes(),
         )?;
     }
+
     Write::write(&mut bytes, b"\r\n")?;
     let body = req.into_body().collect().await?;
     Write::write(&mut bytes, body.to_bytes().as_ref())?;
+
     Ok(bytes)
 }
 
@@ -96,6 +100,7 @@ async fn handle_request(
             .body(Full::new(Bytes::from("Invalid tunnel")))
             .map_err(|e| e.into());
     }
+
     let hash = match u32::from_str_radix(split[1], 16) {
         Ok(h) => h,
         Err(_) => {
@@ -119,6 +124,7 @@ async fn handle_request(
         .forward(serialized.as_slice(), server.clone())
         .await?;
     let resp = wait_for_response(rx).await?;
+
     Ok(resp)
 }
 
@@ -171,9 +177,12 @@ pub async fn run_http(port: u16, server: Arc<Server>) -> Result<(), anyhow::Erro
 
     loop {
         info!("listening on {port}");
+
         let (stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
+
         debug!("accept new connection from client {client_addr:?}");
+
         tokio::spawn(handle_stream(stream, client_addr, server.clone()));
     }
 }
@@ -198,9 +207,12 @@ pub async fn run_https(
 
     loop {
         info!("listening on {port}");
+
         let (tcp_stream, client_addr) = listener.accept().await?;
         let client_addr = assume_socket_addr_v4(client_addr);
+
         debug!("accept new connection from client {client_addr:?}");
+
         tokio::spawn(handle_tls_stream(
             tls_acceptor.clone(),
             tcp_stream,

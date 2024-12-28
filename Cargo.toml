@@ -16,8 +16,7 @@ hyper = { version = "1.5.2", features = ["full"] }
 hyper-util = { version = "0.1.10", features = ["full"] }
 log = "0.4.22"
 murmur3 = "0.5.2"
-#russh = { git = "https://github.com/Eugeny/russh.git" }
-russh = { path = "/Users/pjhades/code/russh/russh" }
+russh = { git = "https://github.com/Eugeny/russh.git" }
 russh-keys = { git = "https://github.com/Eugeny/russh.git" }
 rustls = "0.23.20"
 rustls-pemfile = "2.2.0"

@@ -95,10 +95,7 @@ impl Server {
         match sessions.get_mut(&hash) {
             None => Err(anyhow!("Invalid tunnel")),
             Some(None) => {
-                error!(
-                    "trying to open tunnel but session handle is missing, removing hash {hash:x}"
-                );
-                sessions.remove(&hash);
+                debug!("session is missing for hash {hash:x}");
                 Err(anyhow!("missing session"))
             }
             Some(Some(sess)) => {
@@ -167,19 +164,20 @@ impl Handler for SessionHandler {
 
         let mut sessions = self.server.sessions.lock().await;
         match sessions.get_mut(&hash) {
-            None => return Ok(false),
+            None => {
+                debug!("session is missing for hash {hash:x}");
+                Err(anyhow!("missing session"))
+            }
             Some(Some(_)) => {
-                error!(
-                    "trying to forward TCP/IP but session already exists, removing hash {hash:x}"
-                );
-                sessions.remove(&hash);
+                debug!("session exists for hash {hash:x}");
+                Err(anyhow!("session exists"))
             }
             Some(sess) => {
                 debug!("record session handle for hash {hash:x}");
                 *sess = Some(session.handle());
+                Ok(true)
             }
         }
-        Ok(true)
     }
 
     async fn channel_open_session(

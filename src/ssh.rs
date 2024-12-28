@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
-use crate::{assume_socket_addr_v4, DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT};
+use crate::{assume_socket_addr_v4, DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT, FORWARDED_PORT};
 
 #[derive(Debug)]
 pub struct Tunnel {
@@ -126,7 +126,7 @@ impl Server {
                     let channel = sess
                         .channel_open_forwarded_tcpip(
                             "localhost",
-                            1,
+                            FORWARDED_PORT as u32,
                             format!("{}", client_addr.ip()),
                             client_addr.port() as u32,
                         )

@@ -187,6 +187,7 @@ impl Handler for SessionHandler {
         let hash = u32::from_str_radix(user, 16).map_err(|e| anyhow::Error::from(e))?;
         let sessions = self.server.sessions.lock().await;
         if sessions.get(&hash).is_none() {
+            debug!("Invalid hash {hash:x}");
             // Returning an `Err` makes sure the connection will be closed as a result of
             // authentication failure. In theory we should return `Auth::Reject` but the client
             // will continue with other authentication options like password which isn't

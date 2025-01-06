@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.94"
 async-trait = "0.1.83"
-axum = "0.7.9"
 clap = { version = "4.5.23", features = ["derive"] }
 env_logger = "0.11.5"
 http = "1.2.0"

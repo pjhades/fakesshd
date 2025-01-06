@@ -85,8 +85,6 @@ async fn handle_unregister(
         .map_err(|e| e.into())
 }
 
-// To eliminate the repetition we can implement custom axum extractors
-// to convert `dest_addr` and `client_addr` to `SocketAddrV4`.
 async fn handle_register(
     dest_addr: &str,
     server_addr: SocketAddrV4,
